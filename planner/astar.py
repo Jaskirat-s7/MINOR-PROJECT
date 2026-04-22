@@ -100,6 +100,7 @@ class PlanResult:
     start: Coord3D
     goal: Coord3D
     heuristic_name: str = "euclidean"
+    planner_name:   str = "A*"
 
     # ------------------------------------------------------------------
     # Display helpers
@@ -107,9 +108,10 @@ class PlanResult:
 
     def summary(self) -> str:
         """One-line human-readable summary."""
+        tag = self.planner_name
         if self.success:
             return (
-                f"A* SUCCESS | "
+                f"{tag} SUCCESS | "
                 f"path_length={self.path_length:.3f}  "
                 f"waypoints={len(self.path)}  "
                 f"expanded={self.nodes_expanded}  "
@@ -118,7 +120,7 @@ class PlanResult:
                 f"heuristic={self.heuristic_name}"
             )
         return (
-            f"A* FAILED  | No path from {self.start} → {self.goal}  "
+            f"{tag} FAILED  | No path from {self.start} → {self.goal}  "
             f"expanded={self.nodes_expanded}  "
             f"time={self.elapsed_seconds * 1000:.2f}ms"
         )
@@ -221,6 +223,23 @@ class AStarPlanner:
             node = node.parent
         path.reverse()
         return path, goal_node.g
+
+    def _select_parent(
+        self,
+        current: SearchNode,
+        nb_pos: Coord3D,
+    ) -> Tuple[SearchNode, float]:
+        """
+        [HOOK: PARENT ASSIGNMENT + COST FUNCTION]
+
+        Returns (parent_node, tentative_g) for the successor at *nb_pos*.
+
+        Default (A*): always connect through *current*.
+        Theta*  override: try grandparent bypass via line-of-sight.
+        D* Lite override: augment with predecessor tracking.
+        """
+        tentative_g = current.g + self._step_cost(current.pos, nb_pos)
+        return current, tentative_g
 
     # ------------------------------------------------------------------
     # Public API
@@ -351,18 +370,15 @@ class AStarPlanner:
                 if nb_pos in closed_set:
                     continue
 
-                # ---- Cost computation ----------------------------------
-                # [HOOK: COST FUNCTION]
-                # Replace _step_cost with a terrain-aware version here.
-                tentative_g = current.g + self._step_cost(current.pos, nb_pos)
+                # ---- Parent selection + cost  [HOOK: PARENT ASSIGNMENT] ----
+                # ThetaStarPlanner overrides _select_parent() to add LoS check.
+                # D* Lite will further augment with predecessor tracking.
+                parent_node, tentative_g = self._select_parent(current, nb_pos)
 
                 if tentative_g >= g_values.get(nb_pos, math.inf):
-                    continue    # existing path to nb_pos is at least as good
+                    continue
 
-                # ---- Relaxation ----------------------------------------
-                # [HOOK: PARENT ASSIGNMENT]
-                # D* Lite augments this with predecessor tracking:
-                #     predecessors[nb_pos].add(current.pos)
+                # ---- Relaxation -------------------------------------------
                 g_values[nb_pos] = tentative_g
                 nb_h = weight * h_fn(nb_pos, goal)
                 _seq += 1
@@ -370,7 +386,7 @@ class AStarPlanner:
                     pos=nb_pos,
                     g=tentative_g,
                     h=nb_h,
-                    parent=current,          # ← parent pointer set here
+                    parent=parent_node,      # ← set by _select_parent()
                     seq=_seq,
                 )
                 heapq.heappush(open_list, nb_node)
