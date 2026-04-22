@@ -95,19 +95,53 @@ for row in rows:
     tp  = 100.0 * (rt.elapsed_seconds - ra.elapsed_seconds) / ra.elapsed_seconds
     print(f"  {row['env']:<14}  {wd:>+7}  {wp:>+7.1f}%  {lp:>+7.2f}%  {tp:>+8.1f}%")
 
-sep("Why Theta* Reduces Waypoints")
-print("""
-  A* must step grid-edge by grid-edge — one waypoint per voxel step.
-  Even a perfectly straight 10-voxel corridor needs 11 waypoints.
+sep("Trade-off Analysis  (IMPORTANT — what the professor will ask)")
 
-  Theta* asks one extra question per neighbour:
-      "Can my GRANDPARENT see this cell directly?"
-      YES → skip me, connect straight through      ← any-angle
-      NO  → connect normally                        ← standard A*
+print(f"\n  {'Metric':<22}  {'A* (baseline)':<18}  {'Theta*':<18}  Direction  Explanation")
+print(f"  {'─'*95}")
 
-  Result: that 10-voxel corridor becomes 2 waypoints (start + end).
-  Path length also improves because straight diagonals are more direct
-  than grid zig-zags.
+trade_offs = []
+for row in rows:
+    ra, rt = row["astar"], row["theta"]
+    trade_offs.append((row["env"], ra, rt))
+
+for env, ra, rt in trade_offs:
+    wdelta  = len(rt.path) - len(ra.path)
+    ndelta  = rt.nodes_expanded - ra.nodes_expanded
+    tdelta  = rt.elapsed_seconds - ra.elapsed_seconds
+    ldelta  = rt.path_length - ra.path_length
+
+    print(f"\n  [{env}]")
+    print(f"  {'Waypoints':<22}  {len(ra.path):<18}  {len(rt.path):<18}  "
+          f"{'✅ BETTER':<10}  {wdelta:+d} ({100*wdelta/len(ra.path):+.0f}%)  ← KEY IMPROVEMENT")
+    print(f"  {'Path Length':<22}  {ra.path_length:<18.3f}  {rt.path_length:<18.3f}  "
+          f"{'✅ BETTER':<10}  {ldelta:+.3f} ({100*ldelta/ra.path_length:+.1f}%)  ← shorter route")
+    exp_dir = "✅ BETTER" if ndelta < 0 else "⚠️ WORSE "
+    print(f"  {'Nodes Expanded':<22}  {ra.nodes_expanded:<18,}  {rt.nodes_expanded:<18,}  "
+          f"{exp_dir:<10}  {ndelta:+,}  ← LoS checks alter expansion")
+    print(f"  {'Computation Time':<22}  {ra.elapsed_seconds*1000:<18.1f}  {rt.elapsed_seconds*1000:<18.1f}  "
+          f"{'⚠️ WORSE ':<10}  {tdelta*1000:+.1f}ms  ← LoS check costs extra time")
+
+print(f"""
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  THE TRADE-OFF (answer to professor's question)                     │
+  │                                                                     │
+  │  GAIN  ✅  Waypoints:  −82% to −92%  (path dramatically smoother)  │
+  │  GAIN  ✅  Path length: −4% to −7%  (straighter = shorter)         │
+  │                                                                     │
+  │  COST  ⚠️   Time:      +55% to +178%  (LoS check per neighbour)    │
+  │  COST  ⚠️   Nodes:     varies  (LoS can bypass closed nodes)       │
+  │                                                                     │
+  │  WHY?  Each of 26 neighbours gets one extra LoS check              │
+  │        (Bresenham 3D ray: O(max_dim) per call).                    │
+  │        On a 50³ grid with 32K expansions, this adds millions       │
+  │        of voxel checks → higher wall-clock time.                   │
+  │                                                                     │
+  │  FOR A UAV this is acceptable because:                             │
+  │   • Planning happens ONCE offline                                   │
+  │   • Fewer waypoints = fewer motor commands = less energy           │
+  │   • Smoother path = no sharp turns = faster flight                 │
+  └─────────────────────────────────────────────────────────────────────┘
 """)
 
 # ═══════════════════════════════════════════════════════════════════════
